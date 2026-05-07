@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./cmd:*)",
+      "Bash(bun:*)",
+      "Bash(bunx:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:tanstack.com)",
+      "WebFetch(domain:ui.shadcn.com)",
+      "WebSearch"
+    ],
+    "deny": []
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "echo ''"
+  },
+  "env": {
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": 1,
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": 350000,
+    "CLAUDE_CODE_AUTO_CONNECT_IDE": 0,
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": 1,
+    "CLAUDE_CODE_DISABLE_FAST_MODE": 1,
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": 1,
+    "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": 1,
+    "CLAUDE_CODE_EFFORT_LEVEL": "xhigh"
+  }
+}
