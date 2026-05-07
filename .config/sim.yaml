@@ -1,0 +1,38 @@
+# All actions that can be simulated in the repo.
+
+actions:
+  get_main_hash:
+    desc: "Print the commit hash of remote main"
+    input: {}
+    output:
+      hash:
+        desc: "The commit hash"
+        type: string
+
+  clone_self:
+    desc: "Clones own repo to a temporary directory"
+    input:
+      hash:
+        desc: "The commit hash to checkout"
+        type: string
+    output:
+      dir:
+        desc: "The directory where the repo was cloned to"
+        type: path
+
+  cd:
+    desc: "Change directory"
+    input:
+      path:
+        desc: "The path to change directory to"
+        type: path
+    output: {}
+
+  bun_install:
+    desc: "Run bun install from cwd"
+    input:
+      frozen_lockfile:
+        desc: "--frozen-lockfile"
+        type: bool
+        default: true
+    output: {}
