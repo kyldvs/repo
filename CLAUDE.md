@@ -11,9 +11,9 @@ config — as a reusable building block that downstream repos inherit.
 Strong verification is non-negotiable. Every aspect of the repo must be
 verifiable from a clean state.
 
-- The clone test (`src/__repotest__/clone.test.ts`) clones the repo into an
-  isolated container (podman or docker) and runs install + setup. If it
-  passes, a fresh user can reproduce the environment from scratch.
+- Verification lives in `src/__simtest__/` as declarative *simtests*
+  composed from actions declared in `.config/sim.yaml`. See
+  `docs/system/simtest/` for the system overview.
 - New features add new verification, not new trust.
 - If you can't verify it, you don't ship it.
 
