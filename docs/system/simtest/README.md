@@ -32,8 +32,16 @@ behaves correctly when an assertion fails").
 ## File layout
 
 ```
-.config/sim.yaml                       # action catalog (single source of truth)
+.config/sim.yaml                       # action + assertion catalog (single source of truth)
 src/__simtest__/<name>.simtest.yaml    # individual simtests
+src/cli/sim/action/<name>.ts           # one file per action
+src/cli/sim/assert/<name>.ts           # one file per assertion
+src/cli/sim/protocol.ts                # JSON I/O + catalog validation
+src/cli/sim/run.ts                     # the simtest runner
+src/cli/cmd/sim_action/main.ts         # ./cmd sim_action <name> <in> <out>
+src/cli/cmd/sim_assert/main.ts         # ./cmd sim_assert <name> <in> <out>
+src/cli/cmd/simtest/main.ts            # ./cmd simtest run [path]
+tmp/sim/                               # runtime temp dir (gitignored)
 docs/system/simtest/                   # this documentation
 ```
 
@@ -42,7 +50,7 @@ suffix distinguishes them from config and makes discovery trivial.
 
 Simtest is the repo's sole verification system. There is no separate
 repotest layer — container-backed isolation, when needed, is provided
-by container-backed *actions* (see plan 03).
+by container-backed *actions* (see plan 04).
 
 ## Principles in play
 
@@ -199,17 +207,51 @@ While a simtest runs, the executor tracks:
   `clone_self` are tracked and removed when the simtest finishes,
   pass or fail.
 
+## Action protocol
+
+Every action and assertion is a standalone file invoked the same way:
+
+```
+./cmd sim_action <name> <path/to/input.json> <path/to/output.json>
+./cmd sim_assert <name> <path/to/input.json> <path/to/output.json>
+```
+
+The dispatcher reads input, validates it against the catalog
+declaration, calls the action's `run()`, validates the output, and
+writes it. A non-zero exit means the action crashed; an assertion's
+"did not hold" outcome is signaled in the output JSON
+(`{ ok: false, message?: string }`), not via the exit code.
+
+This means any action is debuggable in isolation:
+
+```sh
+mkdir -p tmp/sim
+echo '{}' > tmp/sim/in.json
+./cmd sim_action get_main_hash tmp/sim/in.json tmp/sim/out.json
+cat tmp/sim/out.json   # { "hash": "..." }
+```
+
+The simtest runner uses the same interface — it generates JSON
+files under a per-run subdirectory of `tmp/sim/` and spawns the
+dispatcher for each step.
+
+See plan `01-actions.md` for the contract; plan `02-runner.md` for
+how the runner composes actions.
+
 ## Running a simtest
 
-> Implementation lands in plan `01-impl.md`. The intended surfaces:
+> Implementation lands across plans `01-actions.md` and
+> `02-runner.md`. The intended surfaces:
 >
 > - `./cmd simtest run <path>` — run a single simtest file.
 > - `./cmd simtest run` — discover and run every `*.simtest.yaml`
 >   under `src/`.
-> - `bun test` — simtests are also wired into the bun test runner so
->   they participate in normal CI.
+> - `bun test` — simtests are also wired into the bun test runner
+>   so they participate in normal CI.
 
 Each simtest is independent: failures in one do not abort others.
+Each run gets its own `tmp/sim/<run-id>/` directory; it is cleaned
+up at the end of the run, pass or fail.
 
 ## Authoring
 
@@ -225,19 +267,27 @@ inline shell.
 
 ### A new action
 
-1. Add the declaration to `.config/sim.yaml` with its `desc`, typed
-   `input`, and typed `output`.
-2. Implement it in the action registry. The implementation must
-   accept the declared inputs and produce the declared outputs.
+1. Add the declaration to `.config/sim.yaml` under `actions:` with
+   its `desc`, typed `input`, and typed `output`.
+2. Create `src/cli/sim/action/<name>.ts` exporting
+   `run(input): Promise<output>`. The implementation must accept the
+   declared inputs and produce the declared outputs.
 3. Add at least one simtest (or extend an existing one) that
    exercises the action — actions without coverage are dead code.
 
+All three land in the same change. The catalog parity check rejects
+declarations without files and files without declarations.
+
 ### A new assertion
 
-Assertions are a parallel registry. Add the implementation, give it a
-short, predicate-style name (`dir_exists`, `is_clean`,
-`file_contains`), and document the inputs it accepts. Any assertion
-should be safe to use under both `assert:` and `assert_not:`.
+Assertions are a parallel registry under `.config/sim.yaml`'s
+`asserts:` block. Add the declaration with its inputs, then create
+`src/cli/sim/assert/<name>.ts` exporting
+`run(input): Promise<{ ok: boolean; message?: string }>`.
+
+Give it a short, predicate-style name (`dir_exists`, `is_clean`,
+`file_contains`). Any assertion should be safe to use under both
+`assert:` and `assert_not:`.
 
 ## Hermetic execution
 
@@ -245,7 +295,7 @@ Simtests run on the host by default. When a scenario needs the same
 isolation guarantees a container provides — pristine env, no host
 caches, exact toolchain pinning — it composes container-backed
 actions (e.g. `podman_run`) rather than living in a separate test
-system. Plan 03 covers when those actions land.
+system. Plan 04 covers when those actions land.
 
 ## Gotchas
 
@@ -264,8 +314,15 @@ system. Plan 03 covers when those actions land.
 - Don't ship an action without a simtest that exercises it. Uncovered
   actions are dead code.
 - Don't compose with `${{ steps.x }}` mid-string in this revision —
-  whole-string substitution only (plan 01). Concat and nested
+  whole-string substitution only (plan 02). Concat and nested
   expressions wait for a real use case.
-- Don't clone the working tree to test "the current state". `clone_self`
-  clones from origin at a specific hash; uncommitted changes are
-  invisible by design.
+- Don't clone the working tree to test "the current state".
+  `clone_self` clones from origin at a specific hash; uncommitted
+  changes are invisible by design.
+- Don't bypass the action dispatcher. Every caller — human, runner,
+  future tooling — invokes actions via `./cmd sim_action <name>
+  <in> <out>`. No imports across action files; no in-process
+  shortcuts (until plan 04 explicitly enables one).
+- Don't put action I/O JSON or scratch state outside `tmp/sim/`.
+  Everything ephemeral lives there so cleanup is one `rm -r` and so
+  it's already gitignored.

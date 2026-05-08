@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# scratch and runtime temp dirs (e.g. simtest action I/O under tmp/sim/)
+tmp
+
 # code coverage
 coverage
 *.lcov
