@@ -136,7 +136,9 @@ regression net for the system.
 
 - **Validation creep.** Strict schema validation is valuable; a
   full JSON-Schema engine is not. Hand-roll the validator. It's a
-  few hundred lines.
+  few hundred lines. See
+  [`make-it-easy`](../../../principles/make-it-easy.md) — build the
+  substrate the suite actually needs.
 - **Meta-simtest tangling.** Meta tests run the runner; if the
   runner breaks, they break. Keep the harness in plain `bun:test`
   so a runner regression is still surfaced by a normal test, not

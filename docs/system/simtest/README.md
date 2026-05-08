@@ -44,6 +44,21 @@ Simtest is the repo's sole verification system. There is no separate
 repotest layer — container-backed isolation, when needed, is provided
 by container-backed *actions* (see plan 03).
 
+## Principles in play
+
+Simtest exists because the repo's principles demanded it:
+
+- [Verify](../../principles/verify.md) — every claim must be
+  reproducible from a clean state.
+- [Declarative](../../principles/declarative.md) — scenarios are data;
+  the runner is the only place that knows *how* to execute.
+- [Compose](../../principles/compose.md) — actions are typed
+  primitives; simtests compose them.
+- [Make it easy](../../principles/make-it-easy.md) — the runner is the
+  substrate that makes adding new verification cheap.
+- [One language](../../principles/one-language.md) — actions and the
+  runner are TypeScript on Bun; YAML is data, not a parallel runtime.
+
 ## Concepts
 
 ### Action
@@ -231,3 +246,26 @@ isolation guarantees a container provides — pristine env, no host
 caches, exact toolchain pinning — it composes container-backed
 actions (e.g. `podman_run`) rather than living in a separate test
 system. Plan 03 covers when those actions land.
+
+## Gotchas
+
+- Don't inline shell in a simtest — if a primitive doesn't exist, add
+  an action. Inline shell breaks composition and hides intent.
+- Don't call an undeclared action. A simtest that references something
+  not in `.config/sim.yaml` fails to load; that's intentional.
+- Don't drift implementation from declaration. The catalog is
+  authoritative; an implementation whose inputs/outputs disagree with
+  the catalog is a bug.
+- Don't share state between simtests. Each simtest gets a fresh
+  context; relying on residue from another run is a guarantee
+  violation, not a feature.
+- Don't write a parallel test system for "this one weird case". Extend
+  the action catalog. Simtest is the only verification system here.
+- Don't ship an action without a simtest that exercises it. Uncovered
+  actions are dead code.
+- Don't compose with `${{ steps.x }}` mid-string in this revision —
+  whole-string substitution only (plan 01). Concat and nested
+  expressions wait for a real use case.
+- Don't clone the working tree to test "the current state". `clone_self`
+  clones from origin at a specific hash; uncommitted changes are
+  invisible by design.

@@ -161,4 +161,6 @@ Before merging any item from this plan:
 
 The repo principle applies harder here than anywhere else: less, but
 better. Most of this plan should remain unbuilt until the day a
-simtest actually demands it.
+simtest actually demands it. See
+[`make-it-easy`](../../../principles/make-it-easy.md) and
+[`verify`](../../../principles/verify.md).

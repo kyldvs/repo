@@ -4,7 +4,9 @@ Goal: make `src/__simtest__/setup.simtest.yaml` a runnable, passing
 test against the declarations in `.config/sim.yaml`. Nothing more.
 
 This plan is deliberately minimal. Anything that isn't required to run
-that one file belongs in a later plan.
+that one file belongs in a later plan. See
+[`make-it-easy`](../../../principles/make-it-easy.md) — build the
+substrate just well enough for the next concrete need.
 
 ## Definition of done
 
