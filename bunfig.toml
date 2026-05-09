@@ -1,2 +1,7 @@
+# Tests default to a tight 200ms timeout. This is intentional: it
+# forces every test to stay narrowly scoped, fast, and reliable. Tests
+# that genuinely need longer (real subprocess work, network, etc.)
+# must opt in explicitly via `test(name, fn, { timeout: ms })` so the
+# cost is visible at the call site.
 [test]
 timeout = 200
