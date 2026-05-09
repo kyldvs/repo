@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
+
+import { RepoFs } from "@/repo/fs";
 
 export type Type = "string" | "path" | "bool";
 
@@ -48,7 +49,7 @@ export function assertFile(name: string): string {
 }
 
 export function loadCatalog(): Catalog {
-  const raw = readFileSync(CATALOG_PATH, "utf8");
+  const raw = RepoFs.readSync(CATALOG_PATH);
   const parsed = parseYaml(raw) as { actions?: unknown; asserts?: unknown };
   return {
     actions: parseActionMap(parsed.actions ?? {}),
@@ -133,7 +134,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 export function readInput(file: string): unknown {
   let contents: string;
   try {
-    contents = readFileSync(file, "utf8");
+    contents = RepoFs.readSync(file);
   } catch (e) {
     throw new Error(`reading ${file}: ${(e as Error).message}`);
   }
@@ -145,9 +146,7 @@ export function readInput(file: string): unknown {
 }
 
 export function writeOutput(file: string, value: unknown): void {
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  renameSync(tmp, file);
+  RepoFs.writeSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 export function validateInput(
@@ -294,7 +293,7 @@ export function parityCheck(catalog: Catalog): ParityDiff {
 function listTsFiles(dir: string): Set<string> {
   let entries: string[];
   try {
-    entries = readdirSync(dir);
+    entries = RepoFs.readDirSync(dir);
   } catch {
     return new Set();
   }

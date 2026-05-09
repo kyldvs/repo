@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
+
+import { RepoFs } from "@/repo/fs";
 
 export const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..");
 export const CMD = path.join(REPO_ROOT, "cmd");
@@ -22,7 +22,7 @@ export async function dispatch(
 ): Promise<DispatchResult> {
   const inPath = path.join(scratchDir, `${tag}.in.json`);
   const outPath = path.join(scratchDir, `${tag}.out.json`);
-  await writeFile(inPath, JSON.stringify(input));
+  await RepoFs.write(inPath, JSON.stringify(input));
   const proc = Bun.spawn([CMD, cmd, name, inPath, outPath], {
     cwd: options.cwd ?? REPO_ROOT,
     stdout: "pipe",
@@ -33,8 +33,8 @@ export async function dispatch(
     new Response(proc.stderr).text(),
   ]);
   const exitCode = await proc.exited;
-  const output = existsSync(outPath)
-    ? JSON.parse(await readFile(outPath, "utf8"))
+  const output = (await RepoFs.exists(outPath))
+    ? JSON.parse(await RepoFs.read(outPath))
     : undefined;
   return { exitCode, output, stdout, stderr };
 }

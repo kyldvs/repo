@@ -44,7 +44,16 @@
         "useConst": "error",
         "noParameterAssign": "error",
         "useDefaultParameterLast": "error",
-        "noCommonJs": "error"
+        "noCommonJs": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "node:fs": "Use RepoFs from @/repo/fs instead.",
+              "node:fs/promises": "Use RepoFs from @/repo/fs instead."
+            }
+          }
+        }
       },
 
       "suspicious": {
@@ -119,6 +128,18 @@
   "javascript": {
     "globals": ["Bun", "bunx"]
   },
+  "overrides": [
+    {
+      "includes": ["src/repo/fs/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ],
   "json": {
     "formatter": {
       "enabled": true,

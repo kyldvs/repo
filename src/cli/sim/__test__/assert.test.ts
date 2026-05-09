@@ -1,21 +1,21 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
 import { dispatch, REPO_ROOT, runIn } from "@/cli/sim/__test__/dispatch";
+import { RepoFs } from "@/repo/fs";
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
 let scratchDir: string;
 
 beforeAll(async () => {
-  await mkdir(path.join(REPO_ROOT, "tmp", "sim"), { recursive: true });
-  scratchDir = await mkdtemp(
+  await RepoFs.mkdir(path.join(REPO_ROOT, "tmp", "sim"), { recursive: true });
+  scratchDir = await RepoFs.mkdtemp(
     path.join(REPO_ROOT, "tmp", "sim", "test-assert-"),
   );
 });
 
 afterAll(async () => {
-  if (scratchDir) await rm(scratchDir, { recursive: true, force: true });
+  if (scratchDir) await RepoFs.rm(scratchDir, { recursive: true, force: true });
 });
 
 test("dir_exists ok: true for an existing dir", async () => {
@@ -45,12 +45,12 @@ test("dir_exists ok: false for a missing dir", async () => {
 });
 
 test("is_clean returns true for a clean repo and false for a dirty one", async () => {
-  const repo = await mkdtemp(path.join(scratchDir, "is_clean-repo-"));
+  const repo = await RepoFs.mkdtemp(path.join(scratchDir, "is_clean-repo-"));
   const init = await runIn(repo, ["git", "init", "-q"]);
   expect(init.exitCode).toBe(0);
   await runIn(repo, ["git", "config", "user.email", "test@example.com"]);
   await runIn(repo, ["git", "config", "user.name", "Test"]);
-  await writeFile(path.join(repo, "f.txt"), "a\n");
+  await RepoFs.write(path.join(repo, "f.txt"), "a\n");
   await runIn(repo, ["git", "add", "f.txt"]);
   await runIn(repo, ["git", "commit", "-q", "-m", "init"]);
 
@@ -65,7 +65,7 @@ test("is_clean returns true for a clean repo and false for a dirty one", async (
   expect(cleanRes.exitCode).toBe(0);
   expect(cleanRes.output).toEqual({ ok: true });
 
-  await writeFile(path.join(repo, "f.txt"), "b\n");
+  await RepoFs.write(path.join(repo, "f.txt"), "b\n");
   const dirtyRes = await dispatch(
     "sim_assert",
     "is_clean",

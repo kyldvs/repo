@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-
 import {
   actionFile,
   formatParityDiff,
@@ -11,6 +9,7 @@ import {
   validateOutput,
   writeOutput,
 } from "@/cli/sim/protocol";
+import { RepoFs } from "@/repo/fs";
 
 async function main(): Promise<void> {
   const [name, inputPath, outputPath] = process.argv.slice(2);
@@ -41,7 +40,7 @@ async function main(): Promise<void> {
   }
 
   const file = actionFile(name);
-  if (!existsSync(file)) {
+  if (!(await RepoFs.exists(file))) {
     process.stderr.write(`no such action: ${name} (file missing: ${file})\n`);
     process.exit(1);
   }

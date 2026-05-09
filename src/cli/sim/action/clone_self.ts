@@ -1,16 +1,16 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
 import * as path from "node:path";
 
 import { runCmd } from "@/cli/sim/proc";
 import { repoRoot } from "@/cli/sim/protocol";
+import { RepoFs } from "@/repo/fs";
 
 // Clones from the configured `origin` (not the working tree), so any
 // uncommitted state in the local checkout is invisible by design.
 
 export async function run(input: { hash: string }): Promise<{ dir: string }> {
   const clonesRoot = path.join(repoRoot(), "tmp", "sim", "clones");
-  await mkdir(clonesRoot, { recursive: true });
-  const dir = await mkdtemp(path.join(clonesRoot, "clone-"));
+  await RepoFs.mkdir(clonesRoot, { recursive: true });
+  const dir = await RepoFs.mkdtemp(path.join(clonesRoot, "clone-"));
 
   const originRes = await runCmd(["git", "remote", "get-url", "origin"]);
   if (originRes.exitCode !== 0) {

@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-
 import {
   assertFile,
   formatParityDiff,
@@ -11,6 +9,7 @@ import {
   validateInput,
   writeOutput,
 } from "@/cli/sim/protocol";
+import { RepoFs } from "@/repo/fs";
 
 async function main(): Promise<void> {
   const [name, inputPath, outputPath] = process.argv.slice(2);
@@ -41,7 +40,7 @@ async function main(): Promise<void> {
   }
 
   const file = assertFile(name);
-  if (!existsSync(file)) {
+  if (!(await RepoFs.exists(file))) {
     process.stderr.write(
       `no such assertion: ${name} (file missing: ${file})\n`,
     );

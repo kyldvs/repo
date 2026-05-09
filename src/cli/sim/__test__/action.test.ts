@@ -1,22 +1,21 @@
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import * as path from "node:path";
 
 import { dispatch, REPO_ROOT } from "@/cli/sim/__test__/dispatch";
+import { RepoFs } from "@/repo/fs";
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
 let scratchDir: string;
 
 beforeAll(async () => {
-  await mkdir(path.join(REPO_ROOT, "tmp", "sim"), { recursive: true });
-  scratchDir = await mkdtemp(
+  await RepoFs.mkdir(path.join(REPO_ROOT, "tmp", "sim"), { recursive: true });
+  scratchDir = await RepoFs.mkdtemp(
     path.join(REPO_ROOT, "tmp", "sim", "test-action-"),
   );
 });
 
 afterAll(async () => {
-  if (scratchDir) await rm(scratchDir, { recursive: true, force: true });
+  if (scratchDir) await RepoFs.rm(scratchDir, { recursive: true, force: true });
 });
 
 test("get_main_hash returns a 40-char hex hash", async () => {
@@ -74,8 +73,8 @@ test("clone_self produces a directory containing package.json", async () => {
   expect(r.exitCode).toBe(0);
   const out = r.output as { dir: string };
   expect(typeof out.dir).toBe("string");
-  expect(existsSync(path.join(out.dir, "package.json"))).toBe(true);
-  await rm(out.dir, { recursive: true, force: true });
+  expect(await RepoFs.exists(path.join(out.dir, "package.json"))).toBe(true);
+  await RepoFs.rm(out.dir, { recursive: true, force: true });
 }, 60_000);
 
 test("bun_install succeeds in repo root with frozen lockfile", async () => {
