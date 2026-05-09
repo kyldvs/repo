@@ -36,3 +36,18 @@ actions:
         type: bool
         default: true
     output: {}
+
+# All assertions that can be used in simtests. Output is fixed:
+# { ok: boolean, message?: string }, so it is not declared here.
+
+asserts:
+  dir_exists:
+    desc: "Assert that a directory exists at path"
+    input:
+      path:
+        desc: "Directory path, resolved against cwd"
+        type: path
+
+  is_clean:
+    desc: "Assert the working tree is clean (git status --porcelain empty)"
+    input: {}

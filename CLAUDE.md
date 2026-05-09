@@ -38,6 +38,9 @@ be verifiable from a clean state.
 - Bun is the package manager. All scripts, installs, and runs go
   through `bun`.
 - Do not use `npm`, `pnpm`, `yarn`, or `node` directly.
+- Type-check with `bun run typecheck`, which shells to `tsgo --noEmit`
+  (the native compiler from `@typescript/native-preview`). Do not
+  invoke `tsc` directly.
 
 ## House rules
 
@@ -51,6 +54,8 @@ be verifiable from a clean state.
 
 - Don't reach for `npm`, `pnpm`, `yarn`, or `node` — Bun owns the
   toolchain.
+- Don't invoke `tsc`. Type-check via `bun run typecheck` (which uses
+  `tsgo --noEmit`).
 - Don't add a second language for "just this script" — TypeScript on
   Bun handles it. See [one-language.md](docs/principles/one-language.md).
 - Don't write a one-off verification script — add a simtest action

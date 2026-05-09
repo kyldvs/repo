@@ -10,7 +10,7 @@
     "lint": "echo ok",
     "prepare": "echo ok",
     "test": "echo ok",
-    "typecheck": "echo ok"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@tanstack/react-router": "^1",
