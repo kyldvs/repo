@@ -6,17 +6,26 @@ import { discoverSimtests } from "@/cli/sim/discover";
 import { formatSimtestError } from "@/cli/sim/error";
 import { loadSimtest } from "@/cli/sim/load";
 import { runSimtest } from "@/cli/sim/run";
+import { matches, parseTagList } from "@/cli/sim/select";
 
 const HERE = import.meta.dir;
-const META = path.join(HERE, "meta");
 const allPaths = await discoverSimtests(HERE);
-const paths = allPaths.filter((p) => !p.startsWith(`${META}${path.sep}`));
 
-for (const p of paths) {
+const filter = {
+  include: parseTagList(process.env.SIMTEST_TAG),
+  exclude: parseTagList(process.env.SIMTEST_EXCLUDE),
+};
+
+for (const p of allPaths) {
   const simtest = loadSimtest(p);
   const rel = path.relative(HERE, p);
+  const label = `${simtest.name} (${rel})`;
+  if (!matches(simtest.tags, filter)) {
+    test.skip(label, () => undefined);
+    continue;
+  }
   test(
-    `${simtest.name} (${rel})`,
+    label,
     async () => {
       const result = await runSimtest(p);
       if (!result.ok) {

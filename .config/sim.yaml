@@ -1,5 +1,18 @@
 # All actions that can be simulated in the repo.
 
+environments:
+  local:
+    desc: "Operate in the current repo working tree"
+    requires: []
+
+  local_clone:
+    desc: "Fresh clone on the host with bun install run on the host"
+    requires: [git, bun]
+
+  pod_clone:
+    desc: "Fresh clone with bun install run inside a container against the cloned tree"
+    requires: [git, docker]
+
 actions:
   get_main_hash:
     desc: "Print the commit hash of remote main"

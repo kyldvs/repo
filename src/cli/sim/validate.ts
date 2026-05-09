@@ -4,8 +4,15 @@ import { err } from "@/cli/sim/yaml_src";
 
 export function validateSimtest(simtest: Simtest, catalog: Catalog): void {
   const src = simtest.src;
+  if (!(simtest.environment in catalog.environments)) {
+    throw err(
+      src,
+      ["environment"],
+      `unknown environment "${simtest.environment}"`,
+    );
+  }
   for (const [i, step] of simtest.steps.entries()) {
-    const p = ["steps", i] as (string | number)[];
+    const p = ["test", i] as (string | number)[];
     const inputSpec =
       step.kind === "action"
         ? catalog.actions[step.name]?.input

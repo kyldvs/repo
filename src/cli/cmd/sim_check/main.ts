@@ -11,7 +11,10 @@ function main(): void {
   if (parityIsClean(diff)) {
     const a = Object.keys(catalog.actions).length;
     const s = Object.keys(catalog.asserts).length;
-    process.stdout.write(`catalog ok: ${a} action(s), ${s} assertion(s)\n`);
+    const e = Object.keys(catalog.environments).length;
+    process.stdout.write(
+      `catalog ok: ${a} action(s), ${s} assertion(s), ${e} environment(s)\n`,
+    );
     return;
   }
   process.stderr.write(

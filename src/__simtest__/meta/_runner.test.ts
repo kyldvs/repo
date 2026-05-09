@@ -13,7 +13,6 @@ let NON_GIT_DIR = "";
 
 beforeAll(async () => {
   await RepoFs.mkdir(META_TMP, { recursive: true });
-  // Outside the repo so `git status` will not find a parent .git.
   NON_GIT_DIR = await RepoFs.mkdtemp(path.join(os.tmpdir(), "simtest-meta-"));
 });
 
@@ -36,7 +35,8 @@ test("meta_assert_failure: assert: dir_exists on a missing path fails at the exp
     [
       'name: "meta_assert_failure"',
       'desc: "intentional false assertion"',
-      "steps:",
+      "environment: local",
+      "test:",
       "  - assert: dir_exists",
       "    input:",
       "      path: definitely_does_not_exist_xyz",
@@ -45,7 +45,8 @@ test("meta_assert_failure: assert: dir_exists on a missing path fails at the exp
   );
 
   const r = await runSimtest(fixture);
-  expect(r.ok).toBe(false);
+  expect(r.outcome).toBe("fail");
+  expect(r.error?.phase).toBe("test");
   expect(r.error?.stepIndex).toBe(0);
   expect(r.error?.stepKind).toBe("assert");
   expect(r.error?.stepName).toBe("dir_exists");
@@ -59,7 +60,8 @@ test("meta_template_missing: unbound steps.X reference produces an error naming 
     [
       'name: "meta_template_missing"',
       'desc: "references an unbound step variable"',
-      "steps:",
+      "environment: local",
+      "test:",
       "  - action: clone_self",
       "    input:",
       `      hash: ${ref}`,
@@ -79,14 +81,15 @@ test("meta_action_missing_input: omitting a required input fails validation with
     [
       'name: "meta_action_missing_input"',
       'desc: "clone_self without required hash input"',
-      "steps:",
+      "environment: local",
+      "test:",
       "  - action: clone_self",
       "",
     ].join("\n"),
   );
 
   const r = await runSimtest(fixture);
-  expect(r.ok).toBe(false);
+  expect(r.outcome).toBe("error");
   expect(r.error?.message).toContain("hash");
 });
 
@@ -96,14 +99,15 @@ test("meta_action_unknown: undeclared action fails validation with the action na
     [
       'name: "meta_action_unknown"',
       'desc: "calls an action that does not exist"',
-      "steps:",
+      "environment: local",
+      "test:",
       "  - action: definitely_not_an_action",
       "",
     ].join("\n"),
   );
 
   const r = await runSimtest(fixture);
-  expect(r.ok).toBe(false);
+  expect(r.outcome).toBe("error");
   expect(r.error?.message).toContain("definitely_not_an_action");
 });
 
@@ -113,7 +117,8 @@ test("meta_subprocess_crash: a non-zero exit propagates with stderr captured", a
     [
       'name: "meta_subprocess_crash"',
       'desc: "is_clean from a non-git directory crashes the subprocess"',
-      "steps:",
+      "environment: local",
+      "test:",
       "  - action: cd",
       "    input:",
       `      path: ${NON_GIT_DIR}`,
@@ -123,11 +128,52 @@ test("meta_subprocess_crash: a non-zero exit propagates with stderr captured", a
   );
 
   const r = await runSimtest(fixture);
-  expect(r.ok).toBe(false);
+  expect(r.outcome).toBe("fail");
+  expect(r.error?.phase).toBe("test");
   expect(r.error?.stepIndex).toBe(1);
   expect(r.error?.stepKind).toBe("assert");
   expect(r.error?.stepName).toBe("is_clean");
   expect(r.error?.message).toContain("subprocess exited");
   expect(r.error?.stderr).toBeDefined();
   expect((r.error?.stderr ?? "").length).toBeGreaterThan(0);
+});
+
+test("meta_steps_rejected: legacy steps: key fails to load with a clear message", async () => {
+  const fixture = await writeFixture(
+    "meta_steps_rejected",
+    [
+      'name: "meta_steps_rejected"',
+      'desc: "legacy schema must not load"',
+      "steps:",
+      "  - assert: dir_exists",
+      "    input:",
+      "      path: src",
+      "",
+    ].join("\n"),
+  );
+
+  const r = await runSimtest(fixture);
+  expect(r.outcome).toBe("error");
+  expect(r.error?.message).toContain("steps");
+});
+
+test("meta_unknown_environment: unknown environment errors with phase environment", async () => {
+  const fixture = await writeFixture(
+    "meta_unknown_environment",
+    [
+      'name: "meta_unknown_environment"',
+      'desc: "references an environment that is not in the catalog"',
+      "environment: definitely_not_a_real_env",
+      "test:",
+      "  - assert: dir_exists",
+      "    input:",
+      "      path: src",
+      "",
+    ].join("\n"),
+  );
+
+  const r = await runSimtest(fixture);
+  expect(r.outcome).toBe("error");
+  expect(r.error?.phase).toBe("environment");
+  expect(r.error?.message).toContain("definitely_not_a_real_env");
 });

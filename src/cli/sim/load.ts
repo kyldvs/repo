@@ -14,12 +14,16 @@ export type Simtest = {
   src: YamlSrc;
   name: string;
   desc: string;
+  environment: string;
+  tags: string[];
   steps: Step[];
 };
 
-const TOP_KEYS = new Set(["name", "desc", "steps"]);
+const TOP_KEYS = new Set(["name", "desc", "environment", "tags", "test"]);
+const REJECTED_TOP_KEYS = new Set(["steps", "preflight", "setup", "pretest"]);
 const STEP_KIND_KEYS = ["action", "assert", "assert_not"] as const;
 const STEP_ALL_KEYS = new Set<string>([...STEP_KIND_KEYS, "input", "output"]);
+const DEFAULT_ENVIRONMENT = "local";
 
 export function loadSimtest(path: string): Simtest {
   const { src, value } = loadYaml(path);
@@ -27,6 +31,13 @@ export function loadSimtest(path: string): Simtest {
     throw err(src, [], "top-level must be a map");
   }
   for (const key of Object.keys(value)) {
+    if (REJECTED_TOP_KEYS.has(key)) {
+      throw err(
+        src,
+        [key],
+        `"${key}" is no longer supported; use "environment" + "test" (see docs/system/simtest/README.md)`,
+      );
+    }
     if (!TOP_KEYS.has(key)) {
       throw err(src, [key], `unknown top-level key "${key}"`);
     }
@@ -40,17 +51,44 @@ export function loadSimtest(path: string): Simtest {
   if (typeof desc !== "string") {
     throw err(src, ["desc"], "desc: expected string");
   }
-  const stepsRaw = value.steps;
+
+  let environment = DEFAULT_ENVIRONMENT;
+  if ("environment" in value) {
+    const e = value.environment;
+    if (typeof e !== "string" || e === "") {
+      throw err(src, ["environment"], "environment: expected non-empty string");
+    }
+    environment = e;
+  }
+
+  const tags: string[] = [];
+  if ("tags" in value) {
+    const raw = value.tags;
+    if (!Array.isArray(raw)) {
+      throw err(src, ["tags"], "tags: expected array");
+    }
+    for (const [i, item] of raw.entries()) {
+      if (typeof item !== "string" || item === "") {
+        throw err(src, ["tags", i], `tags[${i}]: expected non-empty string`);
+      }
+      tags.push(item);
+    }
+  }
+
+  const stepsRaw = value.test;
   if (!Array.isArray(stepsRaw)) {
-    throw err(src, ["steps"], "steps: expected array");
+    throw err(src, ["test"], "test: expected array");
+  }
+  if (stepsRaw.length === 0) {
+    throw err(src, ["test"], "test: must have at least one step");
   }
 
   const steps: Step[] = [];
   for (const [i, raw] of stepsRaw.entries()) {
-    steps.push(parseStep(raw, src, ["steps", i]));
+    steps.push(parseStep(raw, src, ["test", i]));
   }
 
-  return { path, src, name, desc, steps };
+  return { path, src, name, desc, environment, tags, steps };
 }
 
 function parseStep(raw: unknown, src: YamlSrc, p: YamlPath): Step {

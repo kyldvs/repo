@@ -32,16 +32,17 @@ behaves correctly when an assertion fails").
 ## File layout
 
 ```
-.config/sim.yaml                       # action + assertion catalog (single source of truth)
+.config/sim.yaml                       # action + assertion + environment catalog (single source of truth)
 src/__simtest__/<name>.simtest.yaml    # individual simtests
 src/cli/sim/action/<name>.ts           # one file per action
 src/cli/sim/assert/<name>.ts           # one file per assertion
+src/cli/sim/environment/<name>.ts      # one file per environment
 src/cli/sim/protocol.ts                # JSON I/O + catalog validation
 src/cli/sim/run.ts                     # the simtest runner
 src/cli/cmd/sim_action/main.ts         # ./cmd sim_action <name> <in> <out>
 src/cli/cmd/sim_assert/main.ts         # ./cmd sim_assert <name> <in> <out>
 src/cli/cmd/simtest/main.ts            # ./cmd simtest run [path]
-tmp/sim/                               # runtime temp dir (gitignored)
+tmp/sim/<run-id>/                      # per-run temp dir (gitignored, wiped at end of run)
 docs/system/simtest/                   # this documentation
 ```
 
@@ -109,24 +110,12 @@ A simtest is a single YAML file describing one scenario:
 
 ```yaml
 name: "setup"
-desc: "Sets up the 'repo' repo and makes sure everything works"
+desc: "Verifies the local_clone environment delivers a clean, ready working tree"
 
-steps:
-  - action: get_main_hash
-    output:
-      hash: main_hash
-  - action: clone_self
-    input:
-      hash: ${{ steps.main_hash }}
-    output:
-      dir: clone_dir
-  - action: cd
-    input:
-      path: ${{ steps.clone_dir }}
-  - assert_not: dir_exists
-    input:
-      path: node_modules
-  - action: bun_install
+environment: local_clone
+tags: [host, fast]
+
+test:
   - assert: dir_exists
     input:
       path: node_modules
@@ -137,7 +126,89 @@ Top-level fields:
 
 - `name` — short identifier, unique per file.
 - `desc` — what this simtest verifies.
-- `steps` — ordered list. Each step is an action call or an assertion.
+- `environment` — the environment to run the test in. Optional; defaults
+  to `local`. Must name a declaration in `.config/sim.yaml` under
+  `environments:`.
+- `tags` — optional list of strings used for selection at the CLI and in
+  `bun test`. Pure selection; tags do not imply environment behavior.
+- `test` — ordered list of steps for the test phase. Each step is an
+  action call or an assertion.
+
+The schema has exactly two phases — environment setup (owned by the
+named environment) and the test phase (the `test:` list). There is no
+`steps:`, no `preflight:`, no `pretest:`, no `setup:`. A simtest with
+any of those keys fails to load.
+
+### Phases / Environments
+
+A simtest has two concepts:
+
+1. **Environment** — declarative, named, catalog-declared. It owns the
+   bootstrapping required to give the test phase a clean place to run
+   (clone, install, container plumbing). The simtest never repeats this.
+2. **Test** — the steps that verify the property the simtest claims.
+   Test-phase steps run on the host with `cwd` set to the directory the
+   environment returned.
+
+Three environments ship today:
+
+- `local` — operates in the current repo working tree (no setup).
+- `local_clone` — fresh clone in `tmp/sim/<run-id>/clone`, then
+  `bun install --frozen-lockfile` on the host. Requires `git`, `bun`.
+- `pod_clone` — fresh clone in `tmp/sim/<run-id>/clone`, then
+  `bun install --frozen-lockfile` inside `oven/bun:<version>-alpine`
+  bind-mounting the clone. Requires `git`, `docker`. The container runs
+  as the host user so the resulting `node_modules` is host-readable;
+  test-phase steps still run on the host against the same path.
+
+Each environment declares a flat `requires:` list of CLI commands. The
+runner verifies them against `PATH` before calling `setup()`. Anything
+more elaborate (env vars, kernel features, network reachability) is
+not part of an environment until a real consumer needs it.
+
+### Outcomes
+
+Outcomes are exactly `pass | fail | error`:
+
+- `pass` — every step held.
+- `fail` — a test-phase step failed. The structured error carries
+  `phase: "test"`.
+- `error` — the environment couldn't deliver. Missing required CLI,
+  environment setup throw, validation failure: all `error`. The
+  structured error carries `phase: "environment"`.
+
+Both `fail` and `error` exit non-zero. There is no skip outcome. There
+is no `--strict` flag. Loudness is the default and only mode.
+
+### Tags and selection
+
+Top-level `tags: [...]` is the only "don't run this" lever. The
+runner has no `--only`, no `--filter`. Selection happens at discovery
+time; a non-selected simtest is not loaded, not validated, and does not
+appear in per-run output beyond the `<f> filtered` count in the
+summary.
+
+CLI:
+
+- `./cmd simtest run --tag <name>` — keep simtests tagged `<name>`.
+  Multiple `--tag` flags are OR-combined.
+- `./cmd simtest run --exclude <name>` — drop simtests tagged
+  `<name>`. Multiple `--exclude` flags are AND-combined (any match
+  drops). Include filter applies first, then exclude.
+- No flags = run everything.
+
+`bun test` reads `SIMTEST_TAG` and `SIMTEST_EXCLUDE` (comma-separated)
+and registers filtered-out simtests with `test.skip` so they still
+appear in the bun-test summary. `test.skip` is for tag-filtered
+simtests only — never for missing requirements or environment failures.
+
+Reserved tag conventions (documented, not enforced):
+
+- `fast` — runs in well under a second on a warm host.
+- `slow` — multi-second; safe to skip on tight loops.
+- `host` — runs entirely on the host; no container needed.
+- `container` — needs a container runtime.
+- `meta` — exercises the runner itself; not a product test.
 
 ### Step
 
@@ -200,12 +271,13 @@ overwrites it.
 
 While a simtest runs, the executor tracks:
 
-- **Working directory** — modified by `cd`, used as the implicit cwd
-  for actions like `bun_install`.
+- **Working directory** — initialized to the path the environment
+  returned (e.g. the cloned tree under `local_clone`); modified by
+  `cd`; used as the implicit cwd for test-phase actions.
 - **Step variables** — the bindings produced by `output:` blocks.
-- **Cleanup hooks** — temp directories created by actions like
-  `clone_self` are tracked and removed when the simtest finishes,
-  pass or fail.
+- **Run directory** — `tmp/sim/<run-id>/`. Anything an environment
+  writes (clone, install state) lives here and is removed when the
+  simtest finishes, pass or fail.
 
 ## Action protocol
 
@@ -244,10 +316,16 @@ how the runner composes actions.
 - `./cmd simtest run` — discover and run every `*.simtest.yaml`
   under `src/`.
 - `./cmd simtest run --json` — same, but emit one JSON object per
-  simtest on stdout (`{ name, path, ok, durationMs, steps, error? }`).
-  The summary line goes to stderr so stdout stays parseable.
+  simtest on stdout
+  (`{ name, path, outcome, ok, environment, tags, durationMs, steps, error? }`).
+  The `error` object includes `phase` (`"test" | "environment"`) on
+  non-pass outcomes. The summary line goes to stderr so stdout stays
+  parseable.
+- `./cmd simtest run --tag <t>` / `--exclude <t>` — filter by tag (see
+  "Tags and selection" above).
 - `bun test` — simtests are also wired into the bun test runner so
-  they participate in normal CI.
+  they participate in normal CI. Set `SIMTEST_TAG` / `SIMTEST_EXCLUDE`
+  (comma-separated) to filter.
 - `bun run simtest` — package-script wrapper that calls
   `./cmd simtest run`. CI should invoke this alongside `bun run
   typecheck`, `bun run lint`, and `bun test`.
@@ -256,14 +334,30 @@ Each simtest is independent: failures in one do not abort others.
 Each run gets its own `tmp/sim/<run-id>/` directory; it is cleaned
 up at the end of the run, pass or fail.
 
-When a simtest fails, the runner prints a structured report:
+The summary line is always printed (stdout in human mode, stderr in
+JSON mode):
+`<n> passed, <m> failed, <e> errored[, <f> filtered] in <t>ms`. The
+process exits 0 only when every selected simtest passed.
+
+When a test-phase step fails, the runner prints:
 
 ```
-FAIL <simtest> :: step #<n> <kind> <name>
+FAIL <simtest> :: test step #<n> <kind> <name>
   file:   <simtest path>
   cwd:    <ctx.cwd at the failing step>
   inputs: { ... }                # templates expanded
   stderr: <last 4 KiB>           # only when present
+  cause:  <message>
+```
+
+When an environment can't deliver — missing CLI, setup throw, schema
+validation — the runner prints:
+
+```
+ERROR <simtest> :: environment <env-name>
+  file:   <simtest path>
+  cwd:    <process cwd at the time>
+  inputs: {}
   cause:  <message>
 ```
 
@@ -275,12 +369,14 @@ messages — there is one formatter, no parallel print paths.
 ### A new simtest
 
 1. Create `src/__simtest__/<name>.simtest.yaml`.
-2. Set `name` and `desc`.
-3. Compose `steps` from actions declared in `.config/sim.yaml`.
+2. Set `name`, `desc`, `environment`, and (optionally) `tags`.
+3. Compose `test:` from actions and assertions declared in
+   `.config/sim.yaml`.
 4. Run it locally with `./cmd simtest run`.
 
 If you need a primitive that doesn't exist yet, add an action — don't
-inline shell.
+inline shell. If three or more simtests share the same setup, consider
+adding an environment instead.
 
 ### A new action
 
@@ -306,17 +402,42 @@ Give it a short, predicate-style name (`dir_exists`, `is_clean`,
 `file_contains`). Any assertion should be safe to use under both
 `assert:` and `assert_not:`.
 
+### A new environment
+
+1. Add the declaration to `.config/sim.yaml` under `environments:` with
+   its `desc` and a flat `requires:` list of CLI commands.
+2. Create `src/cli/sim/environment/<name>.ts` exporting
+   `setup({ runDir, repoRoot }): Promise<{ cwd: string }>`. Side
+   effects must live under `runDir`; the runner's per-run cleanup is
+   the contract.
+3. Migrate at least one simtest to use it; an environment without a
+   consumer is dead weight.
+
+The catalog parity check rejects declarations without files and files
+without declarations. Don't add a fourth environment until the third
+earns its keep with a real consumer.
+
 ## Hermetic execution
 
-Simtests run on the host by default. When a scenario needs the same
-isolation guarantees a container provides — pristine env, no host
-caches, exact toolchain pinning — it composes container-backed
-actions rather than living in a separate test system.
+Most simtests pick `local_clone` or `pod_clone` for hermeticity: each
+gets a fresh clone under `tmp/sim/<run-id>/clone/` and a fresh
+`bun install`, with cleanup wiping the run directory at the end pass
+or fail.
 
-The `docker_run` action runs a shell script inside a container with a
-single bind-mount, returning captured stdout and stderr. Non-zero
-exit fails the step; the runner attaches the captured stderr to the
-structured `SimtestError`.
+`pod_clone` is the canonical container-backed scenario: clone the
+repo, install inside a stock `oven/bun:<version>-alpine` container,
+then run the test phase on the host against the cloned tree. The
+container runs as the host user (`--user $(id -u):$(id -g)`) so
+files written into the bind-mount stay owned by the host user and
+host-side assertions like `is_clean` still work afterwards. Running
+`pod_clone` simtests requires `docker` on `PATH` and a reachable
+daemon; the image is pulled on first use.
+
+For ad-hoc scenarios that don't fit a canned environment, the
+`docker_run` action remains available to run a shell script inside a
+container with a single bind-mount, returning captured stdout and
+stderr. Non-zero exit fails the step; the runner attaches the
+captured stderr to the structured `SimtestError`.
 
 ```yaml
 - action: docker_run
@@ -327,19 +448,25 @@ structured `SimtestError`.
     mount_dst: /work
 ```
 
-The container runs as the host user (`--user $(id -u):$(id -g)`) so
-files written into the bind-mount stay owned by the host user and
-the cwd-relative `is_clean` assertion still works after the step.
-
-`setup_container.simtest.yaml` is the canonical scenario: clone the
-repo at the current `origin/main` hash, install in a stock
-`oven/bun:<version>-alpine` container, and assert the working tree
-ends clean. Running it requires `docker` on `PATH` and a reachable
-daemon; the simtest will pull `oven/bun:<version>-alpine` on first
-use.
+An environment is the right call when three or more simtests share a
+setup; `docker_run` is the right call when a single simtest needs an
+ad-hoc bootstrap.
 
 ## Gotchas
 
+- Don't write `steps:`, `preflight:`, `setup:`, or `pretest:` at the
+  top level. The schema is `environment` + `test`; legacy keys fail to
+  load.
+- Don't reintroduce a skip outcome under any name. Missing requires and
+  broken environments are ERROR; suites opt out by tag, not by silently
+  skipping.
+- Don't make environment selection imply tags or vice versa.
+  `environment: pod_clone` does not auto-tag `container`. Keep them
+  orthogonal.
+- Don't put environment side effects outside `runDir`. Per-run cleanup
+  is the contract.
+- Don't add a fourth environment until the third earns its keep with at
+  least one real consumer.
 - Don't inline shell in a simtest — if a primitive doesn't exist, add
   an action. Inline shell breaks composition and hides intent.
 - Don't call an undeclared action. A simtest that references something

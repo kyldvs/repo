@@ -2,7 +2,10 @@ name: "meta_isolation_a"
 
 desc: "Half of an isolation pair: succeeds only when the runner started ctx.cwd at the repo root"
 
-steps:
+environment: local
+tags: [meta, fast]
+
+test:
   - assert: dir_exists
     input:
       path: src

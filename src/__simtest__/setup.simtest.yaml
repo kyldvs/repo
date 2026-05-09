@@ -1,31 +1,11 @@
 name: "setup"
 
-desc: "Sets up the 'repo' repo and makes sure everything works"
+desc: "Verifies the local_clone environment delivers a clean, ready working tree"
 
-steps:
-  - action: get_main_hash
-    output:
-      hash: main_hash
+environment: local_clone
+tags: [host, fast]
 
-  - action: clone_self
-    input:
-      hash: ${{ steps.main_hash }}
-    output:
-      dir: clone_dir
-
-  - action: cd
-    input:
-      path: ${{ steps.clone_dir }}
-
-  # Make sure we are in a state that is clean without node_modules.
-  - assert_not: dir_exists
-    input:
-      path: node_modules
-
-  # This should setup the repo, including creating a node_modules.
-  - action: bun_install
-
-  # Validate that the node_modules now exist.
+test:
   - assert: dir_exists
     input:
       path: node_modules

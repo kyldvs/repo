@@ -24,9 +24,15 @@ export type AssertSpec = {
   input: IoSpec;
 };
 
+export type EnvironmentSpec = {
+  desc: string;
+  requires: string[];
+};
+
 export type Catalog = {
   actions: Record<string, ActionSpec>;
   asserts: Record<string, AssertSpec>;
+  environments: Record<string, EnvironmentSpec>;
 };
 
 export type AssertOutput = { ok: boolean; message?: string };
@@ -35,6 +41,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..");
 const CATALOG_PATH = path.join(REPO_ROOT, ".config", "sim.yaml");
 const ACTION_DIR = path.join(REPO_ROOT, "src", "cli", "sim", "action");
 const ASSERT_DIR = path.join(REPO_ROOT, "src", "cli", "sim", "assert");
+const ENV_DIR = path.join(REPO_ROOT, "src", "cli", "sim", "environment");
 
 export function repoRoot(): string {
   return REPO_ROOT;
@@ -48,7 +55,12 @@ export function assertFile(name: string): string {
   return path.join(ASSERT_DIR, `${name}.ts`);
 }
 
-const TOP_KEYS = new Set(["actions", "asserts"]);
+export function environmentFile(name: string): string {
+  return path.join(ENV_DIR, `${name}.ts`);
+}
+
+const TOP_KEYS = new Set(["actions", "asserts", "environments"]);
+const ENV_KEYS = new Set(["desc", "requires"]);
 const FIELD_KEYS = new Set(["desc", "type", "default"]);
 const ACTION_KEYS = new Set(["desc", "input", "output"]);
 const ASSERT_KEYS = new Set(["desc", "input"]);
@@ -66,7 +78,63 @@ export function loadCatalog(): Catalog {
   return {
     actions: parseActionMap(value.actions ?? {}, src),
     asserts: parseAssertMap(value.asserts ?? {}, src),
+    environments: parseEnvironmentMap(value.environments ?? {}, src),
   };
+}
+
+function parseEnvironmentMap(
+  raw: unknown,
+  src: YamlSrc,
+): Record<string, EnvironmentSpec> {
+  const root: YamlPath = ["environments"];
+  if (!isObject(raw)) {
+    throw err(src, root, "environments: expected map");
+  }
+  const result: Record<string, EnvironmentSpec> = {};
+  for (const [name, body] of Object.entries(raw)) {
+    const p: YamlPath = [...root, name];
+    if (!isObject(body)) {
+      throw err(src, p, `environments.${name}: expected map`);
+    }
+    for (const k of Object.keys(body)) {
+      if (!ENV_KEYS.has(k)) {
+        throw err(
+          src,
+          [...p, k],
+          `unknown key "${k}" on environment "${name}"`,
+        );
+      }
+    }
+    const desc = body.desc;
+    if (typeof desc !== "string") {
+      throw err(
+        src,
+        [...p, "desc"],
+        `environments.${name}.desc: expected string`,
+      );
+    }
+    const requiresRaw = body.requires ?? [];
+    if (!Array.isArray(requiresRaw)) {
+      throw err(
+        src,
+        [...p, "requires"],
+        `environments.${name}.requires: expected array`,
+      );
+    }
+    const requires: string[] = [];
+    for (const [i, item] of requiresRaw.entries()) {
+      if (typeof item !== "string" || item === "") {
+        throw err(
+          src,
+          [...p, "requires", i],
+          `environments.${name}.requires[${i}]: expected non-empty string`,
+        );
+      }
+      requires.push(item);
+    }
+    result[name] = { desc, requires };
+  }
+  return result;
 }
 
 function parseActionMap(
@@ -303,14 +371,17 @@ function describe(v: unknown): string {
   return typeof v;
 }
 
+export type ParityKind = "action" | "assert" | "environment";
+
 export type ParityDiff = {
-  declaredButMissing: { kind: "action" | "assert"; name: string }[];
-  fileButUndeclared: { kind: "action" | "assert"; name: string }[];
+  declaredButMissing: { kind: ParityKind; name: string }[];
+  fileButUndeclared: { kind: ParityKind; name: string }[];
 };
 
 export function parityCheck(catalog: Catalog): ParityDiff {
   const actionFiles = listTsFiles(ACTION_DIR);
   const assertFiles = listTsFiles(ASSERT_DIR);
+  const envFiles = listTsFiles(ENV_DIR);
 
   const diff: ParityDiff = {
     declaredButMissing: [],
@@ -335,6 +406,16 @@ export function parityCheck(catalog: Catalog): ParityDiff {
   for (const name of assertFiles) {
     if (!(name in catalog.asserts)) {
       diff.fileButUndeclared.push({ kind: "assert", name });
+    }
+  }
+  for (const name of Object.keys(catalog.environments)) {
+    if (!envFiles.has(name)) {
+      diff.declaredButMissing.push({ kind: "environment", name });
+    }
+  }
+  for (const name of envFiles) {
+    if (!(name in catalog.environments)) {
+      diff.fileButUndeclared.push({ kind: "environment", name });
     }
   }
 

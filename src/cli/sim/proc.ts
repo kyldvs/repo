@@ -10,6 +10,7 @@ export async function runCmd(
 ): Promise<ProcResult> {
   const proc = Bun.spawn(cmd, {
     cwd: options.cwd,
+    env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });

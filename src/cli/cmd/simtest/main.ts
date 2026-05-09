@@ -2,9 +2,11 @@ import * as path from "node:path";
 
 import { discoverSimtests } from "@/cli/sim/discover";
 import { formatSimtestError } from "@/cli/sim/error";
+import { loadSimtest } from "@/cli/sim/load";
 import { repoRoot } from "@/cli/sim/protocol";
 import type { RunResult } from "@/cli/sim/run";
 import { runSimtest } from "@/cli/sim/run";
+import { selectByTags } from "@/cli/sim/select";
 
 type CliMode = "human" | "json";
 
@@ -12,52 +14,110 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const sub = args[0];
   if (sub !== "run") {
-    process.stderr.write("usage: ./cmd simtest run [--json] [path]\n");
+    process.stderr.write(
+      "usage: ./cmd simtest run [--json] [--tag T]... [--exclude T]... [path]\n",
+    );
     process.exit(2);
   }
 
   let mode: CliMode = "human";
+  const includeTags: string[] = [];
+  const excludeTags: string[] = [];
   const positional: string[] = [];
-  for (const a of args.slice(1)) {
+
+  const rest = args.slice(1);
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === undefined) break;
     if (a === "--json") {
       mode = "json";
-    } else if (a.startsWith("--")) {
+      continue;
+    }
+    if (a === "--tag" || a === "--exclude") {
+      const v = rest[i + 1];
+      if (v === undefined || v.startsWith("--")) {
+        process.stderr.write(`${a}: expected a value\n`);
+        process.exit(2);
+      }
+      if (a === "--tag") includeTags.push(v);
+      else excludeTags.push(v);
+      i++;
+      continue;
+    }
+    if (a.startsWith("--tag=") || a.startsWith("--exclude=")) {
+      const eq = a.indexOf("=");
+      const flag = a.slice(0, eq);
+      const v = a.slice(eq + 1);
+      if (v === "") {
+        process.stderr.write(`${flag}: expected a non-empty value\n`);
+        process.exit(2);
+      }
+      if (flag === "--tag") includeTags.push(v);
+      else excludeTags.push(v);
+      continue;
+    }
+    if (a.startsWith("--")) {
       process.stderr.write(`unknown flag: ${a}\n`);
       process.exit(2);
-    } else {
-      positional.push(a);
     }
+    positional.push(a);
   }
 
   const target = positional[0];
-  const paths = target
+  const allPaths = target
     ? [path.resolve(target)]
     : await discoverSimtests(path.join(repoRoot(), "src"));
 
-  if (paths.length === 0) {
+  if (allPaths.length === 0) {
     process.stderr.write("no simtests found under src/\n");
+    process.exit(1);
+  }
+
+  const { selected, filteredOut } = selectByTags(
+    allPaths.map((p) => ({ path: p, tags: tagsOf(p) })),
+    { include: includeTags, exclude: excludeTags },
+  );
+
+  if (selected.length === 0) {
+    const filterMsg =
+      includeTags.length + excludeTags.length > 0
+        ? " (all filtered out by tags)"
+        : "";
+    process.stderr.write(`no simtests to run${filterMsg}\n`);
     process.exit(1);
   }
 
   const start = Date.now();
   let passed = 0;
   let failed = 0;
+  let errored = 0;
 
-  for (const p of paths) {
+  for (const p of selected) {
     const result = await runSimtest(p);
     writeResult(result, mode);
-    if (result.ok) passed++;
-    else failed++;
+    if (result.outcome === "pass") passed++;
+    else if (result.outcome === "fail") failed++;
+    else errored++;
   }
 
   const elapsed = Date.now() - start;
-  const summary = `${passed} passed, ${failed} failed in ${elapsed}ms\n`;
+  const filteredSuffix =
+    filteredOut > 0 ? `, ${filteredOut} filtered` : "";
+  const summary = `${passed} passed, ${failed} failed, ${errored} errored${filteredSuffix} in ${elapsed}ms\n`;
   if (mode === "json") {
     process.stderr.write(summary);
   } else {
     process.stdout.write(summary);
   }
-  process.exit(failed === 0 ? 0 : 1);
+  process.exit(failed === 0 && errored === 0 ? 0 : 1);
+}
+
+function tagsOf(simtestPath: string): string[] {
+  try {
+    return loadSimtest(simtestPath).tags;
+  } catch {
+    return [];
+  }
 }
 
 function writeResult(result: RunResult, mode: CliMode): void {
@@ -65,8 +125,11 @@ function writeResult(result: RunResult, mode: CliMode): void {
     process.stdout.write(`${JSON.stringify(toJson(result))}\n`);
     return;
   }
-  if (result.ok) {
-    process.stdout.write(`PASS ${result.simtest} (${result.durationMs}ms)\n`);
+  if (result.outcome === "pass") {
+    const tagSuffix = result.tags.length > 0 ? ` [${result.tags.join(",")}]` : "";
+    process.stdout.write(
+      `PASS ${result.simtest} (${result.durationMs}ms)${tagSuffix}\n`,
+    );
     return;
   }
   if (result.error) {
@@ -80,7 +143,10 @@ function toJson(result: RunResult): unknown {
   return {
     name: result.simtest,
     path: result.simtestPath,
+    outcome: result.outcome,
     ok: result.ok,
+    environment: result.environment,
+    tags: result.tags,
     durationMs: result.durationMs,
     steps: result.steps.map((s) => ({
       index: s.index,
@@ -92,6 +158,7 @@ function toJson(result: RunResult): unknown {
     ...(result.error
       ? {
           error: {
+            phase: result.error.phase,
             stepIndex: result.error.stepIndex,
             stepKind: result.error.stepKind,
             stepName: result.error.stepName,

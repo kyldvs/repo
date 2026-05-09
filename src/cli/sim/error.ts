@@ -1,8 +1,12 @@
 import type { StepKind } from "@/cli/sim/load";
 
+export type Phase = "environment" | "test";
+
 export type SimtestError = {
   simtest: string;
   simtestPath: string;
+  phase: Phase;
+  environment: string;
   stepIndex: number;
   stepKind: StepKind;
   stepName: string;
@@ -23,9 +27,13 @@ export function truncateStderr(s: string): string {
 
 export function formatSimtestError(err: SimtestError): string {
   const lines: string[] = [];
-  lines.push(
-    `FAIL ${err.simtest} :: step #${err.stepIndex} ${err.stepKind} ${err.stepName}`,
-  );
+  if (err.phase === "environment") {
+    lines.push(`ERROR ${err.simtest} :: environment ${err.environment}`);
+  } else {
+    lines.push(
+      `FAIL ${err.simtest} :: test step #${err.stepIndex} ${err.stepKind} ${err.stepName}`,
+    );
+  }
   lines.push(`  file:   ${err.simtestPath}`);
   lines.push(`  cwd:    ${err.cwd}`);
   lines.push(`  inputs: ${formatInputs(err.resolvedInputs)}`);
