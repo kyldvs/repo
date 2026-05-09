@@ -41,6 +41,10 @@ be verifiable from a clean state.
 - Type-check with `bun run typecheck`, which shells to `tsgo --noEmit`
   (the native compiler from `@typescript/native-preview`). Do not
   invoke `tsc` directly.
+- Touch the filesystem (and other Node built-ins) only via the
+  `src/repo/` wrappers — `RepoFs` for `node:fs`, etc. Direct stdlib
+  imports outside `src/repo/` are banned. See
+  `docs/system/repo-wrapper/`.
 
 ## House rules
 
@@ -65,3 +69,6 @@ be verifiable from a clean state.
 - Don't create a new file when an existing one would do.
 - Don't add speculative abstractions or "just-in-case" branches.
 - Don't write comments that restate what the code already says.
+- Don't import `node:fs` (or other Node built-ins covered by a
+  wrapper) outside `src/repo/`. Use `RepoFs` from `@/repo/fs`. See
+  `docs/system/repo-wrapper/`.
