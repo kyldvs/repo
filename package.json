@@ -9,6 +9,7 @@
     "build": "echo ok",
     "lint": "biome lint .",
     "prepare": "echo ok",
+    "simtest": "./cmd simtest run",
     "test": "echo ok",
     "typecheck": "tsgo --noEmit"
   },

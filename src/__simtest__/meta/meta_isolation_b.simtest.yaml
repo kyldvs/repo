@@ -1,0 +1,8 @@
+name: "meta_isolation_b"
+
+desc: "Half of an isolation pair: cwd reset must hold even when this simtest runs immediately after another that called cd"
+
+steps:
+  - assert: dir_exists
+    input:
+      path: docs

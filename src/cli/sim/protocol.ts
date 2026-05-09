@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import { parse as parseYaml } from "yaml";
 
+import { err, loadYaml, type YamlPath, type YamlSrc } from "@/cli/sim/yaml_src";
 import { RepoFs } from "@/repo/fs";
 
 export type Type = "string" | "path" | "bool";
@@ -48,80 +48,131 @@ export function assertFile(name: string): string {
   return path.join(ASSERT_DIR, `${name}.ts`);
 }
 
+const TOP_KEYS = new Set(["actions", "asserts"]);
+const FIELD_KEYS = new Set(["desc", "type", "default"]);
+const ACTION_KEYS = new Set(["desc", "input", "output"]);
+const ASSERT_KEYS = new Set(["desc", "input"]);
+
 export function loadCatalog(): Catalog {
-  const raw = RepoFs.readSync(CATALOG_PATH);
-  const parsed = parseYaml(raw) as { actions?: unknown; asserts?: unknown };
+  const { src, value } = loadYaml(CATALOG_PATH);
+  if (!isObject(value)) {
+    throw err(src, [], "top-level must be a map");
+  }
+  for (const k of Object.keys(value)) {
+    if (!TOP_KEYS.has(k)) {
+      throw err(src, [k], `unknown top-level key "${k}"`);
+    }
+  }
   return {
-    actions: parseActionMap(parsed.actions ?? {}),
-    asserts: parseAssertMap(parsed.asserts ?? {}),
+    actions: parseActionMap(value.actions ?? {}, src),
+    asserts: parseAssertMap(value.asserts ?? {}, src),
   };
 }
 
-function parseActionMap(raw: unknown): Record<string, ActionSpec> {
+function parseActionMap(
+  raw: unknown,
+  src: YamlSrc,
+): Record<string, ActionSpec> {
+  const root: YamlPath = ["actions"];
   if (!isObject(raw)) {
-    throw new Error(`${CATALOG_PATH}: actions: expected map`);
+    throw err(src, root, "actions: expected map");
   }
   const result: Record<string, ActionSpec> = {};
   for (const [name, body] of Object.entries(raw)) {
+    const p: YamlPath = [...root, name];
     if (!isObject(body)) {
-      throw new Error(`${CATALOG_PATH}: actions.${name}: expected map`);
+      throw err(src, p, `actions.${name}: expected map`);
+    }
+    for (const k of Object.keys(body)) {
+      if (!ACTION_KEYS.has(k)) {
+        throw err(src, [...p, k], `unknown key "${k}" on action "${name}"`);
+      }
     }
     const desc = body.desc;
     if (typeof desc !== "string") {
-      throw new Error(`${CATALOG_PATH}: actions.${name}.desc: expected string`);
+      throw err(src, [...p, "desc"], `actions.${name}.desc: expected string`);
     }
     result[name] = {
       desc,
-      input: parseIoSpec(body.input, `actions.${name}.input`),
-      output: parseIoSpec(body.output, `actions.${name}.output`),
+      input: parseIoSpec(body.input, src, [...p, "input"]),
+      output: parseIoSpec(body.output, src, [...p, "output"]),
     };
   }
   return result;
 }
 
-function parseAssertMap(raw: unknown): Record<string, AssertSpec> {
+function parseAssertMap(
+  raw: unknown,
+  src: YamlSrc,
+): Record<string, AssertSpec> {
+  const root: YamlPath = ["asserts"];
   if (!isObject(raw)) {
-    throw new Error(`${CATALOG_PATH}: asserts: expected map`);
+    throw err(src, root, "asserts: expected map");
   }
   const result: Record<string, AssertSpec> = {};
   for (const [name, body] of Object.entries(raw)) {
+    const p: YamlPath = [...root, name];
     if (!isObject(body)) {
-      throw new Error(`${CATALOG_PATH}: asserts.${name}: expected map`);
+      throw err(src, p, `asserts.${name}: expected map`);
+    }
+    for (const k of Object.keys(body)) {
+      if (!ASSERT_KEYS.has(k)) {
+        throw err(src, [...p, k], `unknown key "${k}" on assert "${name}"`);
+      }
     }
     const desc = body.desc;
     if (typeof desc !== "string") {
-      throw new Error(`${CATALOG_PATH}: asserts.${name}.desc: expected string`);
+      throw err(src, [...p, "desc"], `asserts.${name}.desc: expected string`);
     }
     result[name] = {
       desc,
-      input: parseIoSpec(body.input, `asserts.${name}.input`),
+      input: parseIoSpec(body.input, src, [...p, "input"]),
     };
   }
   return result;
 }
 
-function parseIoSpec(raw: unknown, ctx: string): IoSpec {
+function parseIoSpec(raw: unknown, src: YamlSrc, p: YamlPath): IoSpec {
   if (raw === undefined || raw === null) return {};
   if (!isObject(raw)) {
-    throw new Error(`${CATALOG_PATH}: ${ctx}: expected map`);
+    throw err(src, p, "expected map");
   }
   const result: IoSpec = {};
   for (const [name, body] of Object.entries(raw)) {
+    const fp: YamlPath = [...p, name];
     if (!isObject(body)) {
-      throw new Error(`${CATALOG_PATH}: ${ctx}.${name}: expected map`);
+      throw err(src, fp, `${name}: expected map`);
+    }
+    for (const k of Object.keys(body)) {
+      if (!FIELD_KEYS.has(k)) {
+        throw err(
+          src,
+          [...fp, k],
+          `unknown key "${k}" on field "${name}" (allowed: desc, type, default)`,
+        );
+      }
     }
     const desc = body.desc;
     const type = body.type;
     if (typeof desc !== "string") {
-      throw new Error(`${CATALOG_PATH}: ${ctx}.${name}.desc: expected string`);
+      throw err(src, [...fp, "desc"], `${name}.desc: expected string`);
     }
     if (type !== "string" && type !== "path" && type !== "bool") {
-      throw new Error(
-        `${CATALOG_PATH}: ${ctx}.${name}.type: expected one of string|path|bool, got ${String(type)}`,
+      throw err(
+        src,
+        [...fp, "type"],
+        `${name}.type: expected one of string|path|bool, got ${describe(type)}`,
       );
     }
     const field: FieldSpec = { desc, type };
-    if ("default" in body) field.default = body.default;
+    if ("default" in body) {
+      try {
+        coerce(body.default, type, `${name}.default`);
+      } catch (e) {
+        throw err(src, [...fp, "default"], (e as Error).message);
+      }
+      field.default = body.default;
+    }
     result[name] = field;
   }
   return result;

@@ -240,18 +240,35 @@ how the runner composes actions.
 
 ## Running a simtest
 
-> Implementation lands across plans `01-actions.md` and
-> `02-runner.md`. The intended surfaces:
->
-> - `./cmd simtest run <path>` — run a single simtest file.
-> - `./cmd simtest run` — discover and run every `*.simtest.yaml`
->   under `src/`.
-> - `bun test` — simtests are also wired into the bun test runner
->   so they participate in normal CI.
+- `./cmd simtest run <path>` — run a single simtest file.
+- `./cmd simtest run` — discover and run every `*.simtest.yaml`
+  under `src/`.
+- `./cmd simtest run --json` — same, but emit one JSON object per
+  simtest on stdout (`{ name, path, ok, durationMs, steps, error? }`).
+  The summary line goes to stderr so stdout stays parseable.
+- `bun test` — simtests are also wired into the bun test runner so
+  they participate in normal CI.
+- `bun run simtest` — package-script wrapper that calls
+  `./cmd simtest run`. CI should invoke this alongside `bun run
+  typecheck`, `bun run lint`, and `bun test`.
 
 Each simtest is independent: failures in one do not abort others.
 Each run gets its own `tmp/sim/<run-id>/` directory; it is cleaned
 up at the end of the run, pass or fail.
+
+When a simtest fails, the runner prints a structured report:
+
+```
+FAIL <simtest> :: step #<n> <kind> <name>
+  file:   <simtest path>
+  cwd:    <ctx.cwd at the failing step>
+  inputs: { ... }                # templates expanded
+  stderr: <last 4 KiB>           # only when present
+  cause:  <message>
+```
+
+The same `SimtestError` envelope is used by `bun test` failure
+messages — there is one formatter, no parallel print paths.
 
 ## Authoring
 
