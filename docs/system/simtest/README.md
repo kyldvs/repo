@@ -311,8 +311,32 @@ Give it a short, predicate-style name (`dir_exists`, `is_clean`,
 Simtests run on the host by default. When a scenario needs the same
 isolation guarantees a container provides — pristine env, no host
 caches, exact toolchain pinning — it composes container-backed
-actions (e.g. `podman_run`) rather than living in a separate test
-system. Plan 04 covers when those actions land.
+actions rather than living in a separate test system.
+
+The `docker_run` action runs a shell script inside a container with a
+single bind-mount, returning captured stdout and stderr. Non-zero
+exit fails the step; the runner attaches the captured stderr to the
+structured `SimtestError`.
+
+```yaml
+- action: docker_run
+  input:
+    image: oven/bun:1.3.12-alpine
+    script: bun install --frozen-lockfile
+    mount_src: ${{ steps.clone_dir }}
+    mount_dst: /work
+```
+
+The container runs as the host user (`--user $(id -u):$(id -g)`) so
+files written into the bind-mount stay owned by the host user and
+the cwd-relative `is_clean` assertion still works after the step.
+
+`setup_container.simtest.yaml` is the canonical scenario: clone the
+repo at the current `origin/main` hash, install in a stock
+`oven/bun:<version>-alpine` container, and assert the working tree
+ends clean. Running it requires `docker` on `PATH` and a reachable
+daemon; the simtest will pull `oven/bun:<version>-alpine` on first
+use.
 
 ## Gotchas
 

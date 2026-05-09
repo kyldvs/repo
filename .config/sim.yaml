@@ -37,6 +37,29 @@ actions:
         default: true
     output: {}
 
+  docker_run:
+    desc: "Run a shell script inside a docker container with a single bind-mount"
+    input:
+      image:
+        desc: "Container image to run, e.g. oven/bun:1.3.12-alpine"
+        type: string
+      script:
+        desc: "Shell script passed to `sh -c` inside the container"
+        type: string
+      mount_src:
+        desc: "Absolute host path to bind-mount into the container"
+        type: path
+      mount_dst:
+        desc: "Container path the host directory is mounted at; also the working directory"
+        type: path
+    output:
+      stdout:
+        desc: "Captured stdout from the container (UTF-8)"
+        type: string
+      stderr:
+        desc: "Captured stderr from the container (UTF-8)"
+        type: string
+
 # All assertions that can be used in simtests. Output is fixed:
 # { ok: boolean, message?: string }, so it is not declared here.
 

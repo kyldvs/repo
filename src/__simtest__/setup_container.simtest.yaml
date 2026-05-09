@@ -1,0 +1,33 @@
+name: "setup_container"
+
+desc: "Hermetic clone + install: a fresh clone bootstraps cleanly inside a stock bun container"
+
+steps:
+  - action: get_main_hash
+    output:
+      hash: main_hash
+
+  - action: clone_self
+    input:
+      hash: ${{ steps.main_hash }}
+    output:
+      dir: clone_dir
+
+  # Run `bun install --frozen-lockfile` in a clean container against the
+  # cloned repo. Non-zero exit fails the step (runner captures stderr).
+  - action: docker_run
+    input:
+      image: oven/bun:1.3.12-alpine
+      script: bun install --frozen-lockfile
+      mount_src: ${{ steps.clone_dir }}
+      mount_dst: /work
+
+  - action: cd
+    input:
+      path: ${{ steps.clone_dir }}
+
+  - assert: dir_exists
+    input:
+      path: node_modules
+
+  - assert: is_clean
