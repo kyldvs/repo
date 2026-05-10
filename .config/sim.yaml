@@ -22,17 +22,6 @@ actions:
         desc: "The commit hash"
         type: string
 
-  clone_self:
-    desc: "Clones own repo to a temporary directory"
-    input:
-      hash:
-        desc: "The commit hash to checkout"
-        type: string
-    output:
-      dir:
-        desc: "The directory where the repo was cloned to"
-        type: path
-
   cd:
     desc: "Change directory"
     input:

@@ -3,8 +3,19 @@ import * as path from "node:path";
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
+import type { TestError } from "@/cli/sim/error";
+import type { RunResult } from "@/cli/sim/run";
 import { runSimtest } from "@/cli/sim/run";
 import { RepoFs } from "@/repo/fs";
+
+function expectTestError(r: RunResult): TestError {
+  if (r.error?.phase !== "test") {
+    throw new Error(
+      `expected test-phase error, got phase=${r.error?.phase ?? "<none>"}`,
+    );
+  }
+  return r.error;
+}
 
 const HERE = import.meta.dir;
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
@@ -46,11 +57,11 @@ test("meta_assert_failure: assert: dir_exists on a missing path fails at the exp
 
   const r = await runSimtest(fixture);
   expect(r.outcome).toBe("fail");
-  expect(r.error?.phase).toBe("test");
-  expect(r.error?.stepIndex).toBe(0);
-  expect(r.error?.stepKind).toBe("assert");
-  expect(r.error?.stepName).toBe("dir_exists");
-  expect(r.error?.message).toContain("assertion failed");
+  const err = expectTestError(r);
+  expect(err.stepIndex).toBe(0);
+  expect(err.stepKind).toBe("assert");
+  expect(err.stepName).toBe("dir_exists");
+  expect(err.message).toContain("assertion failed");
 });
 
 test("meta_template_missing: unbound steps.X reference produces an error naming the variable", async () => {
@@ -62,17 +73,18 @@ test("meta_template_missing: unbound steps.X reference produces an error naming 
       'desc: "references an unbound step variable"',
       "environment: local",
       "test:",
-      "  - action: clone_self",
+      "  - action: cd",
       "    input:",
-      `      hash: ${ref}`,
+      `      path: ${ref}`,
       "",
     ].join("\n"),
   );
 
   const r = await runSimtest(fixture);
-  expect(r.ok).toBe(false);
-  expect(r.error?.stepIndex).toBe(0);
-  expect(r.error?.message).toContain("nope");
+  expect(r.outcome).toBe("fail");
+  const err = expectTestError(r);
+  expect(err.stepIndex).toBe(0);
+  expect(err.message).toContain("nope");
 });
 
 test("meta_action_missing_input: omitting a required input fails validation with the field name", async () => {
@@ -80,17 +92,17 @@ test("meta_action_missing_input: omitting a required input fails validation with
     "meta_action_missing_input",
     [
       'name: "meta_action_missing_input"',
-      'desc: "clone_self without required hash input"',
+      'desc: "cd without required path input"',
       "environment: local",
       "test:",
-      "  - action: clone_self",
+      "  - action: cd",
       "",
     ].join("\n"),
   );
 
   const r = await runSimtest(fixture);
   expect(r.outcome).toBe("error");
-  expect(r.error?.message).toContain("hash");
+  expect(r.error?.message).toContain("path");
 });
 
 test("meta_action_unknown: undeclared action fails validation with the action name", async () => {
@@ -129,13 +141,13 @@ test("meta_subprocess_crash: a non-zero exit propagates with stderr captured", a
 
   const r = await runSimtest(fixture);
   expect(r.outcome).toBe("fail");
-  expect(r.error?.phase).toBe("test");
-  expect(r.error?.stepIndex).toBe(1);
-  expect(r.error?.stepKind).toBe("assert");
-  expect(r.error?.stepName).toBe("is_clean");
-  expect(r.error?.message).toContain("subprocess exited");
-  expect(r.error?.stderr).toBeDefined();
-  expect((r.error?.stderr ?? "").length).toBeGreaterThan(0);
+  const err = expectTestError(r);
+  expect(err.stepIndex).toBe(1);
+  expect(err.stepKind).toBe("assert");
+  expect(err.stepName).toBe("is_clean");
+  expect(err.message).toContain("subprocess exited");
+  expect(err.stderr).toBeDefined();
+  expect((err.stderr ?? "").length).toBeGreaterThan(0);
 });
 
 test("meta_steps_rejected: legacy steps: key fails to load with a clear message", async () => {

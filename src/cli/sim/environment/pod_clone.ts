@@ -1,5 +1,6 @@
 import * as path from "node:path";
 
+import { cloneFromOrigin } from "@/cli/sim/git";
 import { runCmd } from "@/cli/sim/proc";
 
 export type EnvCtx = { cwd: string };
@@ -11,29 +12,7 @@ export async function setup(opts: {
   repoRoot: string;
 }): Promise<EnvCtx> {
   const cloneDir = path.join(opts.runDir, "clone");
-
-  const originRes = await runCmd(["git", "remote", "get-url", "origin"], {
-    cwd: opts.repoRoot,
-  });
-  if (originRes.exitCode !== 0) {
-    throw new Error(
-      `git remote get-url origin failed: ${originRes.stderr.trim()}`,
-    );
-  }
-  const origin = originRes.stdout.trim();
-  if (!origin) throw new Error("origin URL is empty");
-
-  const cloneRes = await runCmd([
-    "git",
-    "clone",
-    "--depth",
-    "1",
-    origin,
-    cloneDir,
-  ]);
-  if (cloneRes.exitCode !== 0) {
-    throw new Error(`git clone failed: ${cloneRes.stderr.trim()}`);
-  }
+  await cloneFromOrigin({ repoRoot: opts.repoRoot, dest: cloneDir });
 
   const uid = process.getuid?.() ?? 0;
   const gid = process.getgid?.() ?? 0;

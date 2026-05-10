@@ -52,31 +52,6 @@ test("cd accepts an existing dir, rejects a missing one", async () => {
   expect(bad.exitCode).not.toBe(0);
 });
 
-test("clone_self produces a directory containing package.json", async () => {
-  const hashRes = await dispatch(
-    "sim_action",
-    "get_main_hash",
-    {},
-    scratchDir,
-    "clone-hash",
-  );
-  expect(hashRes.exitCode).toBe(0);
-  const { hash } = hashRes.output as { hash: string };
-
-  const r = await dispatch(
-    "sim_action",
-    "clone_self",
-    { hash },
-    scratchDir,
-    "clone",
-  );
-  expect(r.exitCode).toBe(0);
-  const out = r.output as { dir: string };
-  expect(typeof out.dir).toBe("string");
-  expect(await RepoFs.exists(path.join(out.dir, "package.json"))).toBe(true);
-  await RepoFs.rm(out.dir, { recursive: true, force: true });
-}, 60_000);
-
 test("bun_install succeeds in repo root with frozen lockfile", async () => {
   const r = await dispatch(
     "sim_action",
