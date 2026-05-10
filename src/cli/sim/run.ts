@@ -22,7 +22,6 @@ export type StepResult = {
 
 export type RunResult = {
   outcome: Outcome;
-  ok: boolean;
   simtest: string;
   simtestPath: string;
   environment: string;
@@ -36,6 +35,8 @@ const CMD = path.join(repoRoot(), "cmd");
 
 type Ctx = { cwd: string; vars: Record<string, unknown> };
 
+type SimtestMeta = Pick<Simtest, "name" | "path" | "environment" | "tags">;
+
 type EnvModule = {
   setup: (opts: {
     runDir: string;
@@ -45,42 +46,45 @@ type EnvModule = {
 
 export async function runSimtest(simtestPath: string): Promise<RunResult> {
   const startedAt = Date.now();
-
   let simtest: Simtest;
   try {
     simtest = loadSimtest(simtestPath);
   } catch (e) {
-    return loadOrValidateFailure(simtestPath, simtestPath, "", [], startedAt, e);
-  }
-
-  let catalog: Catalog;
-  try {
-    catalog = loadCatalog();
-    validateSimtest(simtest, catalog);
-  } catch (e) {
-    return loadOrValidateFailure(
-      simtest.name,
-      simtest.path,
-      simtest.environment,
-      simtest.tags,
-      startedAt,
-      e,
-    );
-  }
-
-  const envSpec = catalog.environments[simtest.environment];
-  if (!envSpec) {
-    return errorResult(simtest, startedAt, {
-      message: `unknown environment "${simtest.environment}"`,
-      cwd: process.cwd(),
+    const meta: SimtestMeta = {
+      name: simtestPath,
+      path: simtestPath,
+      environment: "",
+      tags: [],
+    };
+    return makeResult(meta, startedAt, {
+      outcome: "error",
+      error: envError(meta, (e as Error).message),
     });
   }
+  return runLoadedSimtest(simtest, startedAt);
+}
 
-  const missing = checkRequires(envSpec.requires);
-  if (missing.length > 0) {
-    return errorResult(simtest, startedAt, {
-      message: `required CLI not on PATH: ${missing.join(", ")} (environment ${simtest.environment})`,
-      cwd: process.cwd(),
+export async function runLoadedSimtest(
+  simtest: Simtest,
+  startedAt: number = Date.now(),
+): Promise<RunResult> {
+  try {
+    const catalog: Catalog = loadCatalog();
+    validateSimtest(simtest, catalog);
+    const envSpec = catalog.environments[simtest.environment];
+    if (!envSpec) {
+      throw new Error(`unknown environment "${simtest.environment}"`);
+    }
+    const missing = checkRequires(envSpec.requires);
+    if (missing.length > 0) {
+      throw new Error(
+        `required CLI not on PATH: ${missing.join(", ")} (environment ${simtest.environment})`,
+      );
+    }
+  } catch (e) {
+    return makeResult(simtest, startedAt, {
+      outcome: "error",
+      error: envError(simtest, (e as Error).message),
     });
   }
 
@@ -99,9 +103,12 @@ export async function runSimtest(simtestPath: string): Promise<RunResult> {
   } catch (e) {
     restoreEnv(envSnapshot);
     await RepoFs.rm(runDir, { recursive: true, force: true });
-    return errorResult(simtest, startedAt, {
-      message: `environment ${simtest.environment} setup failed: ${(e as Error).message}`,
-      cwd: process.cwd(),
+    return makeResult(simtest, startedAt, {
+      outcome: "error",
+      error: envError(
+        simtest,
+        `environment ${simtest.environment} setup failed: ${(e as Error).message}`,
+      ),
     });
   }
 
@@ -121,29 +128,14 @@ export async function runSimtest(simtestPath: string): Promise<RunResult> {
         durationMs,
       });
       if (!r.ok) {
-        return {
+        return makeResult(simtest, startedAt, {
           outcome: "fail",
-          ok: false,
-          simtest: simtest.name,
-          simtestPath: simtest.path,
-          environment: simtest.environment,
-          tags: simtest.tags,
-          durationMs: Date.now() - startedAt,
           steps,
           error: r.error,
-        };
+        });
       }
     }
-    return {
-      outcome: "pass",
-      ok: true,
-      simtest: simtest.name,
-      simtestPath: simtest.path,
-      environment: simtest.environment,
-      tags: simtest.tags,
-      durationMs: Date.now() - startedAt,
-      steps,
-    };
+    return makeResult(simtest, startedAt, { outcome: "pass", steps });
   } finally {
     restoreEnv(envSnapshot);
     await RepoFs.rm(runDir, { recursive: true, force: true });
@@ -173,19 +165,7 @@ async function runStep(
     kind: step.kind,
     name: step.name,
     ok: false,
-    error: {
-      simtest: simtest.name,
-      simtestPath: simtest.path,
-      phase: "test",
-      environment: simtest.environment,
-      stepIndex: index,
-      stepKind: step.kind,
-      stepName: step.name,
-      cwd: ctx.cwd,
-      resolvedInputs: resolvedInput,
-      message,
-      ...(stderr !== undefined ? { stderr: truncateStderr(stderr) } : {}),
-    },
+    error: testError(simtest, step, index, ctx, resolvedInput, message, stderr),
   });
 
   try {
@@ -269,65 +249,55 @@ function checkRequires(requires: string[]): string[] {
   return missing;
 }
 
-function loadOrValidateFailure(
-  name: string,
-  simtestPath: string,
-  environment: string,
-  tags: string[],
+function makeResult(
+  meta: SimtestMeta,
   startedAt: number,
-  e: unknown,
+  body: { outcome: Outcome; steps?: StepResult[]; error?: SimtestError },
 ): RunResult {
-  const message = (e as Error).message;
   return {
-    outcome: "error",
-    ok: false,
-    simtest: name,
-    simtestPath,
-    environment,
-    tags,
+    outcome: body.outcome,
+    simtest: meta.name,
+    simtestPath: meta.path,
+    environment: meta.environment,
+    tags: meta.tags,
     durationMs: Date.now() - startedAt,
-    steps: [],
-    error: {
-      simtest: name,
-      simtestPath,
-      phase: "environment",
-      environment,
-      stepIndex: -1,
-      stepKind: "action",
-      stepName: "<load>",
-      cwd: process.cwd(),
-      resolvedInputs: {},
-      message,
-    },
+    steps: body.steps ?? [],
+    ...(body.error ? { error: body.error } : {}),
   };
 }
 
-function errorResult(
-  simtest: Simtest,
-  startedAt: number,
-  opts: { message: string; cwd: string },
-): RunResult {
+function envError(meta: SimtestMeta, message: string): SimtestError {
   return {
-    outcome: "error",
-    ok: false,
+    phase: "environment",
+    simtest: meta.name,
+    simtestPath: meta.path,
+    environment: meta.environment,
+    cwd: process.cwd(),
+    message,
+  };
+}
+
+function testError(
+  simtest: Simtest,
+  step: Step,
+  index: number,
+  ctx: Ctx,
+  resolvedInputs: Record<string, unknown>,
+  message: string,
+  stderr?: string,
+): SimtestError {
+  return {
+    phase: "test",
     simtest: simtest.name,
     simtestPath: simtest.path,
     environment: simtest.environment,
-    tags: simtest.tags,
-    durationMs: Date.now() - startedAt,
-    steps: [],
-    error: {
-      simtest: simtest.name,
-      simtestPath: simtest.path,
-      phase: "environment",
-      environment: simtest.environment,
-      stepIndex: -1,
-      stepKind: "action",
-      stepName: "<environment>",
-      cwd: opts.cwd,
-      resolvedInputs: {},
-      message: opts.message,
-    },
+    stepIndex: index,
+    stepKind: step.kind,
+    stepName: step.name,
+    cwd: ctx.cwd,
+    resolvedInputs,
+    message,
+    ...(stderr !== undefined ? { stderr: truncateStderr(stderr) } : {}),
   };
 }
 

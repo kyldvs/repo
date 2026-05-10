@@ -1,23 +1,5 @@
 export type TagFilter = { include: string[]; exclude: string[] };
 
-export type SimtestEntry = { path: string; tags: string[] };
-
-export function selectByTags(
-  items: SimtestEntry[],
-  filter: TagFilter,
-): { selected: string[]; filteredOut: number } {
-  const selected: string[] = [];
-  let filteredOut = 0;
-  for (const item of items) {
-    if (matches(item.tags, filter)) {
-      selected.push(item.path);
-    } else {
-      filteredOut++;
-    }
-  }
-  return { selected, filteredOut };
-}
-
 export function matches(tags: string[], filter: TagFilter): boolean {
   if (filter.include.length > 0) {
     if (!filter.include.some((t) => tags.includes(t))) return false;

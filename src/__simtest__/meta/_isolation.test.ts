@@ -17,10 +17,10 @@ test("isolation pair: cwd reset, env restored, run dirs cleaned", async () => {
   const runDirsBefore = await listRunDirs();
 
   const a = await runSimtest(A);
-  expect(a.ok).toBe(true);
+  expect(a.outcome).toBe("pass");
 
   const b = await runSimtest(B);
-  expect(b.ok).toBe(true);
+  expect(b.outcome).toBe("pass");
 
   expect(process.cwd()).toBe(cwdBefore);
   expect(JSON.stringify(process.env)).toBe(envBefore);

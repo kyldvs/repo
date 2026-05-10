@@ -2,11 +2,12 @@ import * as path from "node:path";
 
 import { discoverSimtests } from "@/cli/sim/discover";
 import { formatSimtestError } from "@/cli/sim/error";
+import type { Simtest } from "@/cli/sim/load";
 import { loadSimtest } from "@/cli/sim/load";
 import { repoRoot } from "@/cli/sim/protocol";
 import type { RunResult } from "@/cli/sim/run";
-import { runSimtest } from "@/cli/sim/run";
-import { selectByTags } from "@/cli/sim/select";
+import { runLoadedSimtest, runSimtest } from "@/cli/sim/run";
+import { matches } from "@/cli/sim/select";
 
 type CliMode = "human" | "json";
 
@@ -73,10 +74,25 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { selected, filteredOut } = selectByTags(
-    allPaths.map((p) => ({ path: p, tags: tagsOf(p) })),
-    { include: includeTags, exclude: excludeTags },
-  );
+  const filter = { include: includeTags, exclude: excludeTags };
+  type Entry = { path: string; simtest?: Simtest };
+  const entries: Entry[] = allPaths.map((p) => {
+    try {
+      return { path: p, simtest: loadSimtest(p) };
+    } catch {
+      return { path: p };
+    }
+  });
+
+  let filteredOut = 0;
+  const selected: Entry[] = [];
+  for (const e of entries) {
+    if (e.simtest && !matches(e.simtest.tags, filter)) {
+      filteredOut++;
+      continue;
+    }
+    selected.push(e);
+  }
 
   if (selected.length === 0) {
     const filterMsg =
@@ -92,8 +108,10 @@ async function main(): Promise<void> {
   let failed = 0;
   let errored = 0;
 
-  for (const p of selected) {
-    const result = await runSimtest(p);
+  for (const e of selected) {
+    const result = e.simtest
+      ? await runLoadedSimtest(e.simtest)
+      : await runSimtest(e.path);
     writeResult(result, mode);
     if (result.outcome === "pass") passed++;
     else if (result.outcome === "fail") failed++;
@@ -110,14 +128,6 @@ async function main(): Promise<void> {
     process.stdout.write(summary);
   }
   process.exit(failed === 0 && errored === 0 ? 0 : 1);
-}
-
-function tagsOf(simtestPath: string): string[] {
-  try {
-    return loadSimtest(simtestPath).tags;
-  } catch {
-    return [];
-  }
 }
 
 function writeResult(result: RunResult, mode: CliMode): void {
@@ -144,7 +154,6 @@ function toJson(result: RunResult): unknown {
     name: result.simtest,
     path: result.simtestPath,
     outcome: result.outcome,
-    ok: result.ok,
     environment: result.environment,
     tags: result.tags,
     durationMs: result.durationMs,
@@ -155,22 +164,29 @@ function toJson(result: RunResult): unknown {
       ok: s.ok,
       durationMs: s.durationMs,
     })),
-    ...(result.error
-      ? {
-          error: {
-            phase: result.error.phase,
-            stepIndex: result.error.stepIndex,
-            stepKind: result.error.stepKind,
-            stepName: result.error.stepName,
-            cwd: result.error.cwd,
-            resolvedInputs: result.error.resolvedInputs,
-            message: result.error.message,
-            ...(result.error.stderr !== undefined
-              ? { stderr: result.error.stderr }
-              : {}),
-          },
-        }
-      : {}),
+    ...(result.error ? { error: errorToJson(result.error) } : {}),
+  };
+}
+
+function errorToJson(err: NonNullable<RunResult["error"]>): unknown {
+  const stderr = err.stderr !== undefined ? { stderr: err.stderr } : {};
+  if (err.phase === "environment") {
+    return {
+      phase: err.phase,
+      cwd: err.cwd,
+      message: err.message,
+      ...stderr,
+    };
+  }
+  return {
+    phase: err.phase,
+    stepIndex: err.stepIndex,
+    stepKind: err.stepKind,
+    stepName: err.stepName,
+    cwd: err.cwd,
+    resolvedInputs: err.resolvedInputs,
+    message: err.message,
+    ...stderr,
   };
 }
 

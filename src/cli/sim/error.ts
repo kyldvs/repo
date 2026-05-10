@@ -2,19 +2,28 @@ import type { StepKind } from "@/cli/sim/load";
 
 export type Phase = "environment" | "test";
 
-export type SimtestError = {
+type Common = {
   simtest: string;
   simtestPath: string;
-  phase: Phase;
   environment: string;
-  stepIndex: number;
-  stepKind: StepKind;
-  stepName: string;
   cwd: string;
-  resolvedInputs: Record<string, unknown>;
   message: string;
   stderr?: string;
 };
+
+export type EnvironmentError = Common & {
+  phase: "environment";
+};
+
+export type TestError = Common & {
+  phase: "test";
+  stepIndex: number;
+  stepKind: StepKind;
+  stepName: string;
+  resolvedInputs: Record<string, unknown>;
+};
+
+export type SimtestError = EnvironmentError | TestError;
 
 const STDERR_LIMIT = 4 * 1024;
 
@@ -36,7 +45,9 @@ export function formatSimtestError(err: SimtestError): string {
   }
   lines.push(`  file:   ${err.simtestPath}`);
   lines.push(`  cwd:    ${err.cwd}`);
-  lines.push(`  inputs: ${formatInputs(err.resolvedInputs)}`);
+  if (err.phase === "test") {
+    lines.push(`  inputs: ${formatInputs(err.resolvedInputs)}`);
+  }
   if (err.stderr !== undefined && err.stderr.trim() !== "") {
     lines.push("  stderr:");
     for (const l of err.stderr.replace(/\s+$/, "").split("\n")) {

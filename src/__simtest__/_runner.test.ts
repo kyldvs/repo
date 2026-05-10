@@ -28,7 +28,7 @@ for (const p of allPaths) {
     label,
     async () => {
       const result = await runSimtest(p);
-      if (!result.ok) {
+      if (result.outcome !== "pass") {
         const reason = result.error
           ? formatSimtestError(result.error)
           : "unknown error";

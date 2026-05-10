@@ -2,12 +2,20 @@ import { err, loadYaml, type YamlPath, type YamlSrc } from "@/cli/sim/yaml_src";
 
 export type StepKind = "action" | "assert" | "assert_not";
 
-export type Step = {
-  kind: StepKind;
+export type ActionStep = {
+  kind: "action";
   name: string;
   input: Record<string, unknown>;
   output: Record<string, string>;
 };
+
+export type AssertionStep = {
+  kind: "assert" | "assert_not";
+  name: string;
+  input: Record<string, unknown>;
+};
+
+export type Step = ActionStep | AssertionStep;
 
 export type Simtest = {
   path: string;
@@ -120,8 +128,14 @@ function parseStep(raw: unknown, src: YamlSrc, p: YamlPath): Step {
   }
 
   const input = parseInput(raw.input, src, [...p, "input"]);
-  const output = parseOutput(raw.output, src, [...p, "output"], kind);
-  return { kind, name, input, output };
+  if (kind === "action") {
+    const output = parseActionOutput(raw.output, src, [...p, "output"]);
+    return { kind, name, input, output };
+  }
+  if (raw.output !== undefined && raw.output !== null) {
+    throw err(src, [...p, "output"], "only actions can declare outputs");
+  }
+  return { kind, name, input };
 }
 
 function parseInput(
@@ -136,16 +150,12 @@ function parseInput(
   return { ...raw };
 }
 
-function parseOutput(
+function parseActionOutput(
   raw: unknown,
   src: YamlSrc,
   p: YamlPath,
-  kind: StepKind,
 ): Record<string, string> {
   if (raw === undefined || raw === null) return {};
-  if (kind !== "action") {
-    throw err(src, p, "only actions can declare outputs");
-  }
   if (!isObject(raw)) {
     throw err(src, p, "output: expected map");
   }

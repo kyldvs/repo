@@ -317,7 +317,7 @@ how the runner composes actions.
   under `src/`.
 - `./cmd simtest run --json` — same, but emit one JSON object per
   simtest on stdout
-  (`{ name, path, outcome, ok, environment, tags, durationMs, steps, error? }`).
+  (`{ name, path, outcome, environment, tags, durationMs, steps, error? }`).
   The `error` object includes `phase` (`"test" | "environment"`) on
   non-pass outcomes. The summary line goes to stderr so stdout stays
   parseable.

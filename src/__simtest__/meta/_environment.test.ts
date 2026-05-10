@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 
 import { runCmd } from "@/cli/sim/proc";
 import { runSimtest } from "@/cli/sim/run";
-import { matches, selectByTags } from "@/cli/sim/select";
+import { matches } from "@/cli/sim/select";
 import { RepoFs } from "@/repo/fs";
 
 const HERE = import.meta.dir;
@@ -117,43 +117,22 @@ test("ERROR: environment setup throw is captured with phase environment", async 
   expect(r.error?.message.toLowerCase()).toMatch(/git|setup failed/);
 });
 
-test("tag selection: include filter keeps simtests with any matching tag", () => {
-  const items = [
-    { path: "a", tags: ["fast", "host"] },
-    { path: "b", tags: ["slow", "container"] },
-    { path: "c", tags: ["meta", "fast"] },
-  ];
-  const r = selectByTags(items, { include: ["fast"], exclude: [] });
-  expect(r.selected).toEqual(["a", "c"]);
-  expect(r.filteredOut).toBe(1);
-});
+test("tag selection: include keeps any matching tag, exclude drops any matching tag", () => {
+  const f1 = { include: ["fast"], exclude: [] };
+  expect(matches(["fast", "host"], f1)).toBe(true);
+  expect(matches(["slow", "container"], f1)).toBe(false);
+  expect(matches(["meta", "fast"], f1)).toBe(true);
 
-test("tag selection: exclude filter drops simtests with any matching tag", () => {
-  const items = [
-    { path: "a", tags: ["fast", "host"] },
-    { path: "b", tags: ["slow", "container"] },
-    { path: "c", tags: ["meta", "fast"] },
-  ];
-  const r = selectByTags(items, { include: [], exclude: ["container"] });
-  expect(r.selected).toEqual(["a", "c"]);
-  expect(r.filteredOut).toBe(1);
-});
+  const f2 = { include: [], exclude: ["container"] };
+  expect(matches(["fast", "host"], f2)).toBe(true);
+  expect(matches(["slow", "container"], f2)).toBe(false);
 
-test("tag selection: include then exclude apply together", () => {
-  const items = [
-    { path: "a", tags: ["fast", "host"] },
-    { path: "b", tags: ["fast", "container"] },
-    { path: "c", tags: ["slow", "host"] },
-  ];
-  const r = selectByTags(items, {
-    include: ["fast"],
-    exclude: ["container"],
-  });
-  expect(r.selected).toEqual(["a"]);
-  expect(r.filteredOut).toBe(2);
-});
+  const f3 = { include: ["fast"], exclude: ["container"] };
+  expect(matches(["fast", "host"], f3)).toBe(true);
+  expect(matches(["fast", "container"], f3)).toBe(false);
+  expect(matches(["slow", "host"], f3)).toBe(false);
 
-test("tag selection: empty include and exclude keeps everything", () => {
-  expect(matches([], { include: [], exclude: [] })).toBe(true);
-  expect(matches(["fast"], { include: [], exclude: [] })).toBe(true);
+  const empty = { include: [], exclude: [] };
+  expect(matches([], empty)).toBe(true);
+  expect(matches(["fast"], empty)).toBe(true);
 });
